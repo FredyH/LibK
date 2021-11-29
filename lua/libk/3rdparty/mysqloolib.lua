@@ -1,13 +1,15 @@
-mysqloolib = {}
 --[==[
 	This library aims to provide an easier and less verbose way to use mysqloo
 	Function overview:
 	
-	mysqloolib.ConvertDatabase(database)
+	mysqloo.ConvertDatabase(database)
 		Returns: the modified database
 		Modifies an existing database to make use of the extended functionality of this library
 		
-
+	mysqloo.CreateDatabase(host, username, password [, database, port, socket])
+		Returns: the newly created database instance
+		Does the same as mysqloo.connect() but adds convenient functions provided by this library
+		
 	Query callbacks are of this structure:
 	function callback([additionalArgs], query, status, dataOrError) end
 		additionalArgs are any additional arguments that are passed after the callback in RunQuery and similar
@@ -82,13 +84,31 @@ mysqloolib = {}
 		end)
 ]==]
 
-local db = {}
-local dbMetatable = {__index = db}
+require("mysqloo")
+if (mysqloo.VERSION != "9" || !mysqloo.MINOR_VERSION || tonumber(mysqloo.MINOR_VERSION) < 1) then
+	MsgC(Color(255, 0, 0), "You are using an outdated mysqloo version\n")
+	MsgC(Color(255, 0, 0), "Download the latest mysqloo9 from here\n")
+	MsgC(Color(86, 156, 214), "https://github.com/FredyH/MySQLOO/releases")
+	return
+end
 
-//This converts an already existing database instance to be able to make use
-//of the easier functionality provided by mysqloo.CreateDatabase
-function mysqloolib.ConvertDatabase(database)
+local db = {}
+local baseMeta = FindMetaTable("MySQLOO Database") or {} -- this ensures backwards compatibility to <=9.6
+local dbMetatable = {__index = function(tbl, key)
+	return (db[key] or baseMeta[key])
+end}
+
+--This converts an already existing database instance to be able to make use
+--of the easier functionality provided by mysqloo.CreateDatabase
+function mysqloo.ConvertDatabase(database)
 	return setmetatable(database, dbMetatable)
+end
+
+--The same as mysqloo.connect() but adds easier functionality
+function mysqloo.CreateDatabase(...)
+	local db = mysqloo.connect(...)
+	db:connect()
+	return mysqloo.ConvertDatabase(db)
 end
 
 local function addQueryFunctions(query, func, ...)
@@ -138,8 +158,8 @@ local function setPreparedQueryArguments(query, values)
 		["number"] = function(query, index, value) query:setNumber(index, value) end,
 		["boolean"] = function(query, index, value) query:setBoolean(index, value) end,
 	}
-	//This has to be pairs instead of ipairs
-	//because nil is allowed as value
+	--This has to be pairs instead of ipairs
+	--because nil is allowed as value
 	for k, v in pairs(values) do
 		local varType = type(v)
 		if (typeFunctions[varType]) then
@@ -160,10 +180,13 @@ function db:PrepareQuery(str, values, callback, ...)
 end
 
 local transaction = {}
-local transactionMT = {__index = transaction}
+local baseTransactionMeta = FindMetaTable("MySQLOO Transaction") or {} -- this ensures backwards compatibility to <=9.6
+local transactionMT = {__index = function(tbl, key)
+	return (transaction[key] or baseTransactionMeta[key])
+end}
 
 function transaction:Prepare(str, values)
-	//TODO: Cache queries
+	--TODO: Cache queries
 	local preparedQuery = self._db:prepare(str)
 	setPreparedQueryArguments(preparedQuery, values)
 	self:addQuery(preparedQuery)
