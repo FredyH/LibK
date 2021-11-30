@@ -6,7 +6,6 @@ mysqloolib = {}
 	mysqloolib.ConvertDatabase(database)
 		Returns: the modified database
 		Modifies an existing database to make use of the extended functionality of this library
-		
 
 	Query callbacks are of this structure:
 	function callback([additionalArgs], query, status, dataOrError) end
@@ -83,10 +82,23 @@ mysqloolib = {}
 ]==]
 
 local db = {}
-local dbMetatable = {__index = db}
+local baseMetaInitialized = false
+local baseMeta = {}
+local function getBaseMeta()
+	if (!baseMetaInitialized) then
+		-- this ensures backwards compatibility to <=9.6
+		baseMeta = FindMetaTable("MySQLOO Database") or {}
+		baseMetaInitialized = true
+	end
+	return baseMeta
+end
 
-//This converts an already existing database instance to be able to make use
-//of the easier functionality provided by mysqloo.CreateDatabase
+local dbMetatable = {__index = function(tbl, key)
+	return db[key] or getBaseMeta()[key]
+end}
+
+--This converts an already existing database instance to be able to make use
+--of the easier functionality provided by mysqloo.CreateDatabase
 function mysqloolib.ConvertDatabase(database)
 	return setmetatable(database, dbMetatable)
 end
@@ -138,8 +150,8 @@ local function setPreparedQueryArguments(query, values)
 		["number"] = function(query, index, value) query:setNumber(index, value) end,
 		["boolean"] = function(query, index, value) query:setBoolean(index, value) end,
 	}
-	//This has to be pairs instead of ipairs
-	//because nil is allowed as value
+	--This has to be pairs instead of ipairs
+	--because nil is allowed as value
 	for k, v in pairs(values) do
 		local varType = type(v)
 		if (typeFunctions[varType]) then
@@ -160,15 +172,29 @@ function db:PrepareQuery(str, values, callback, ...)
 end
 
 local transaction = {}
-local transactionMT = {__index = transaction}
+local baseTransactionMetaInitialized = false
+local baseTransactionMeta = {}
+local function getBaseTransactionMeta()
+	if (!baseTransactionMetaInitialized) then
+		-- this ensures backwards compatibility to <=9.6
+		baseTransactionMeta = FindMetaTable("MySQLOO Transaction") or {}
+		baseTransactionMetaInitialized = true
+	end
+	return baseTransactionMeta
+end
+
+local transactionMT = {__index = function(tbl, key)
+	return transaction[key] or getBaseTransactionMeta()[key]
+end}
 
 function transaction:Prepare(str, values)
-	//TODO: Cache queries
+	--TODO: Cache queries
 	local preparedQuery = self._db:prepare(str)
 	setPreparedQueryArguments(preparedQuery, values)
 	self:addQuery(preparedQuery)
 	return preparedQuery
 end
+
 function transaction:Query(str)
 	local query = self._db:query(str)
 	self:addQuery(query)
